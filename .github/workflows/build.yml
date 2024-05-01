@@ -1,0 +1,114 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      log_level:
+        description: 'Log level'
+        required: true
+        default: 'warning'
+
+jobs:
+  build-macos-arm64:
+    name: Build macOS arm64
+    runs-on: macos-14
+    strategy:
+      matrix:
+        architecture: ['arm64']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Build
+        run: |
+          brew install autoconf
+          brew install automake
+          brew install wget
+          wget https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0.tar.gz
+          tar -zxf aria2-1.37.0.tar.gz
+          cd aria2-1.37.0
+          cp ../makerelease-osx-v2.mk ./
+          mkdir build-release
+          cd build-release
+          ln -s ../makerelease-osx-v2.mk Makefile
+          make ARCH=${{ matrix.architecture }}
+          cd aria2-def/bin
+          tar -zcf aria2c-macos-${{ matrix.architecture }}.tar.gz aria2c
+          cp aria2c-macos-${{ matrix.architecture }}.tar.gz ${{ github.workspace }}/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: aria2c-macos-${{ matrix.architecture }}
+          path: aria2c-macos-${{ matrix.architecture }}.tar.gz
+          
+  build-macos-x86_64:
+    name: Build macOS x86_64
+    runs-on: macos-13
+    strategy:
+      matrix:
+        architecture: ['x86_64']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Build
+        run: |
+          brew install autoconf
+          brew install automake
+          brew install wget
+          wget https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0.tar.gz
+          tar -zxf aria2-1.37.0.tar.gz
+          cd aria2-1.37.0
+          cp ../makerelease-osx-v2.mk ./
+          mkdir build-release
+          cd build-release
+          ln -s ../makerelease-osx-v2.mk Makefile
+          make ARCH=${{ matrix.architecture }}
+          cd aria2-def/bin
+          tar -zcf aria2c-macos-${{ matrix.architecture }}.tar.gz aria2c
+          cp aria2c-macos-${{ matrix.architecture }}.tar.gz ${{ github.workspace }}/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: aria2c-macos-${{ matrix.architecture }}
+          path: aria2c-macos-${{ matrix.architecture }}.tar.gz
+
+  release:
+    needs: [build-macos-arm64, build-macos-x86_64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v2
+        with:
+          path: artifacts
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Assets
+        run: |
+          for file in ./artifacts/aria2c-*/*; do
+            if [ -f "$file" ]; then
+              asset_name=$(basename $file)
+              echo "Uploading asset: $asset_name"
+              gh release upload ${GITHUB_REF#refs/tags/} "$file" --repo ${{ github.repository }}
+            fi
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
